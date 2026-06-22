@@ -177,7 +177,14 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 {
   "version": "1.0",
   "checkpoint": {
-    ...
+    "id": "cp-2",
+    "name": "操作确认",
+    "phase": "Phase 2",
+    "summary": "请确认执行操作",
+    "action": "wait",
+    "decisions": [
+      {"id": "d-1", "type": "confirm", "question": "确认执行？"}
+    ]
   }
 }
 ```
