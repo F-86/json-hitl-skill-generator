@@ -204,9 +204,9 @@ Phase 3  Generate (Day 1)
 Phase 4  Review (Day 1) 用户审阅原型
          ★ Checkpoint 2 — 必须停
    ▼
-Phase 5  Generate (Batch)
-         批量生成剩余 3 个 skill，一次交付
-         └ 最终内联自查
+Phase 5  Revise         原型问题修复
+   ────── CP-2 确认后 ──────
+         → 回到 Phase 3 子阶段 B 批量生成剩余 3 个 skill
    ▼
 Phase 6  Deliver        写入目标路径（4 个文件）
          ★ Checkpoint 3 — 最终确认
