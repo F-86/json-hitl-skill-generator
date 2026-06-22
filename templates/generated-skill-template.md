@@ -46,7 +46,6 @@ metadata:
 
 本 skill 使用 ````hitl` JSON 代码块作为标准人机交互协议。每个需要人类介入的节点，agent 输出以下格式的 block：
 
-```````markdown
 ```text
 {
   "version": "1.0",
@@ -62,7 +61,6 @@ metadata:
   }
 }
 ```
-```````
 
 协议完整规范见 `references/hitl-protocol.md`。
 
