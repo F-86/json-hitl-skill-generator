@@ -113,7 +113,12 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 
 从用户描述中判断操作类型，提取已提供的参数。
 
-## Phase 1 — <操作名称>（如"查询参数确认"、"创建参数收集"）
+**[查询操作] 禁止行为：**
+- **禁止**用自然语言询问"你想查全部还是按条件筛选？"、"需要按什么条件查？"等问题
+- 收到查询意图后，**直接进入 Phase 1，输出 hitl input 块**，把所有可筛选字段一次性展示给用户
+- 用户留空的字段 = 不按该字段筛选；所有字段留空 = 查询全部
+
+## Phase 1 — <操作名称>（如"查询条件收集"、"创建参数收集"）
 
 ### 参数清单
 
@@ -123,6 +128,18 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 | `<param_2>` | 是/否 | string/number/choice | `<默认值或 —>` | `<说明>` |
 
 ### 执行逻辑
+
+**[查询操作]** 查询条件通过 `hitl` 块收集，所有字段均非必填：
+
+1. **直接输出** `hitl` 块，将所有可筛选字段一次性展示给用户，不先询问意图
+   - 可枚举字段（分类、状态等）→ `combobox`（前端拉取选项渲染 combobox）
+   - 数值区间字段（年龄、数量等）→ `number_range`
+   - 时间区间字段（创建时间等）→ `datetime_range`
+   - **禁止**在查询场景使用 `input` 类型
+2. 前端执行 `combobox.options_from` 拉取选项，用户操作完成后将结果构建为 filters 对象
+3. 输出 `apicall`
+
+**[增/改/删操作]** 从用户输入中提取参数：
 
 1. 从用户输入中提取参数
 2. 检查必填参数是否齐全
@@ -138,6 +155,58 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 - **禁止**跳过必填参数直接执行
 
 #### ★ Checkpoint 1 — 参数确认
+
+**[查询操作]** 直接输出查询条件块（combobox + 范围字段混合）：
+
+**决策收集铁律：** 以下决策项每项独立列出。Agent **可以推荐**（用 `default` 字段标记），但**不能静默替用户选择**。
+
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-1",
+    "name": "查询条件",
+    "phase": "Phase 1",
+    "summary": "请选择筛选条件，留空的字段不参与筛选",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "combobox",
+        "question": "请选择<字段1>",
+        "field": "<field1>",
+        "label": "<字段1>",
+        "multiple": true,
+        "options_from": {
+          "method": "GET",
+          "endpoint": "/api/<options-endpoint>",
+          "label_field": "<name>",
+          "value_field": "<id>"
+        }
+      },
+      {
+        "id": "d-2",
+        "type": "number_range",
+        "question": "请填写<数字字段>范围",
+        "field": "<num_field>",
+        "label": "<数字字段>",
+        "unit": "<单位>"
+      },
+      {
+        "id": "d-3",
+        "type": "datetime_range",
+        "question": "请填写<时间字段>范围",
+        "field": "<time_field>",
+        "label": "<时间字段>"
+      }
+    ]
+  }
+}
+```
+
+> 根据资源实际字段，只保留适用的 decision 条目；不适用的类型直接删除。
+
+**[增/改/删操作]** 标准参数确认块：
 
 **决策收集铁律：** 以下决策项每项独立列出。Agent **可以推荐**（用 `default` 字段标记），但**不能静默替用户选择**。
 
@@ -174,6 +243,8 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 
 #### ★ Checkpoint 2 — <操作名称确认>（仅增/改/删）
 
+**[增/改]** 最终确认后输出独立 apicall：
+
 ```hitl
 {
   "version": "1.0",
@@ -190,9 +261,48 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 }
 ```
 
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>", "body": {"field1": "{{param1}}", "field2": "{{param2}}"}}
+```
+
+**[删]** apicall 内嵌在最终确认 hitl 中，用户确认后前端直接执行：
+
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-delete",
+    "name": "删除确认",
+    "phase": "Phase 2",
+    "summary": "即将永久删除 <对象描述>，不可恢复",
+    "action": "wait",
+    "apicall": {"method": "DELETE", "endpoint": "/api/<resource>/{{id}}"},
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "确认删除？",
+        "options": [
+          {"value": "confirm", "label": "⚠️ 确认删除", "desc": "永久删除"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "不执行"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+**[查]** 无最终确认 CP；参数确认 hitl 之后直接输出 apicall：
+
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/query", "body": {"filters": {"<field1>": ["<value1>", "<value2>"], "<num_field>": {"gte": 0, "lte": 100}, "<time_field>": {"gte": "2024-01-01T00:00:00Z", "lte": "2024-12-31T23:59:59Z"}}}}
+```
+
+> 序列化规则：`string` 字段 → 值数组；`number_range` → `{"gte": x, "lte": y}`（只填一端时只出现对应算符）；`datetime_range` → `{"gte": "ISO8601", "lte": "ISO8601"}`。`filters` 只包含用户实际填写的非空字段；若用户未填写任何字段，`filters` 为 `{}`。
+
 ### 结果展示
 
-<操作完成后的结果展示方式>
+<操作完成后的结果展示方式：前端执行 apicall 并渲染，agent 不描述结果>
 
 提供后续操作选项。
 
@@ -200,7 +310,7 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 
 ## Common Pitfalls
 
-1. ...
+1. 【查询】收到查询意图后先用自然语言问"你想按什么条件查"——禁止。应直接输出 hitl input 块，把所有可筛选字段一次性给用户。
 2. ...
 
 ## Verification Checklist
@@ -211,7 +321,8 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 - [ ] 禁止行为已写入
 - [ ] 所有 ````hitl` 块 JSON 语法合法
 - [ ] 决策收集铁律已写入
-- [ ] （增/改/删）有最终确认
-- [ ] （查）无最终确认
-- [ ] （删）最终确认无全局 default
+- [ ] （增/改）有最终确认 hitl + 独立 apicall
+- [ ] （删）有最终确认 hitl，apicall 内嵌在 checkpoint 中，无全局 default
+- [ ] （查）无最终确认；参数确认 hitl 后紧跟独立 apicall
+- [ ] apicall 块只包含用户实际提供的参数，无未提及字段
 ```

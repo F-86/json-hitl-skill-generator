@@ -108,13 +108,138 @@
 }
 ```
 
-**用途：** 收集用户提供的结构化信息。
+**用途：** 收集用户提供的结构化信息。**仅限 Create / Update 场景**（用户填写新数据）。查询条件中的字段选择禁止使用 `input`，改用 `combobox`。
 
 **限制：** fields ≤ 5 个。
 
 ---
 
-## CRUD 专用模板
+## Combobox（前端拉取选项后用户选择）
+
+```json
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-n",
+    "name": "查询条件",
+    "phase": "阶段名",
+    "summary": "请选择筛选条件",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "combobox",
+        "question": "请选择分类",
+        "field": "category",
+        "label": "分类",
+        "multiple": true,
+        "options_from": {
+          "method": "GET",
+          "endpoint": "/api/categories",
+          "label_field": "name",
+          "value_field": "id"
+        }
+      },
+      {
+        "id": "d-2",
+        "type": "combobox",
+        "question": "请选择状态",
+        "field": "status",
+        "label": "状态",
+        "multiple": true,
+        "options_from": {
+          "method": "GET",
+          "endpoint": "/api/statuses",
+          "label_field": "label",
+          "value_field": "value"
+        }
+      }
+    ]
+  }
+}
+```
+
+**用途：** 查询条件中可枚举的字段。LLM 输出该块后，前端执行 `options_from` apicall 拉取选项列表并渲染 combobox，用户选择后前端将结果写入 filters。
+
+**规则：**
+- 一个 checkpoint 可以包含多个 `combobox` decision（每个字段一项）
+- 可与 `number_range` / `datetime_range` decision 混排在同一 checkpoint 中
+- `multiple: true` 时前端渲染多选 combobox，用户结果序列化为数组；`multiple: false` 时单选
+- 用户未选择的字段不进入 filters
+
+---
+
+## Number Range（数值范围）
+
+```json
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-n",
+    "name": "数值范围",
+    "phase": "阶段名",
+    "summary": "请填写数值范围条件",
+    "action": "wait",
+    "decisions": [{
+      "id": "d-1",
+      "type": "number_range",
+      "question": "请填写范围（两端均可选填，留空表示不限）",
+      "field": "age",
+      "label": "年龄",
+      "unit": "岁"
+    }]
+  }
+}
+```
+
+**用途：** 收集单个数值字段的范围条件（大于/小于/区间）。适用于年龄、数量、金额、评分等。
+
+**字段说明：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `field` | 是 | 对应资源的字段名，agent 用于构建 filters key |
+| `label` | 是 | 展示给用户的字段名称 |
+| `unit` | 否 | 数值单位，前端展示用（如"岁"、"件"、"元"） |
+
+前端渲染为两个数字输入框（最小值 / 最大值）。agent 收到后序列化：只填最小值 → `{"gte": x}`，只填最大值 → `{"lte": y}`，两端都填 → `{"gte": x, "lte": y}`，两端均空 → 该字段不进入 filters。
+
+---
+
+## Datetime Range（时间范围）
+
+```json
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-n",
+    "name": "时间范围",
+    "phase": "阶段名",
+    "summary": "请填写时间范围条件",
+    "action": "wait",
+    "decisions": [{
+      "id": "d-1",
+      "type": "datetime_range",
+      "question": "请填写时间范围（两端均可选填，留空表示不限）",
+      "field": "created_at",
+      "label": "创建时间"
+    }]
+  }
+}
+```
+
+**用途：** 收集单个时间字段的范围条件。适用于创建时间、修改时间、过期时间等。
+
+**字段说明：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `field` | 是 | 对应资源的字段名，agent 用于构建 filters key |
+| `label` | 是 | 展示给用户的字段名称 |
+
+前端渲染为两个日期时间选择器（开始 / 结束）。agent 收到后序列化为 ISO 8601：只填开始 → `{"gte": "...Z"}`，只填结束 → `{"lte": "...Z"}`，两端都填 → `{"gte": "...Z", "lte": "...Z"}`，两端均空 → 该字段不进入 filters。
+
+---
 
 ### Read：参数确认（无最终确认）
 
@@ -186,4 +311,146 @@
 }
 ```
 
-**铁律：** Delete 操作的最终确认 ````hitl` 块不得包含全局 `default` 字段（但 `options` 中可以标记 `"default": "cancel"` 让取消为默认）。
+---
+
+## CRUD apicall 模板
+
+### Read：查询（独立块）
+
+参数确认 `hitl` 之后输出。只拼入用户实际给出的参数。
+
+```text
+```apicall
+{"method": "GET", "endpoint": "/api/<resource>?<param>=<value>"}
+```
+```
+
+### Create：创建（独立块）
+
+最终确认 `hitl` 之后输出，或参数齐全时直接输出。
+
+```text
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>", "body": {"field1": "value1", "field2": "value2"}}
+```
+```
+
+### Update：更新（独立块）
+
+最终确认 `hitl` 之后输出。body 中只包含用户实际要修改的字段。
+
+```text
+```apicall
+{"method": "PUT", "endpoint": "/api/<resource>/<id>", "body": {"field": "value"}}
+```
+```
+
+### Delete：删除（内嵌在最终确认 hitl 中）
+
+将 `apicall` 字段嵌入 `checkpoint` 顶层，用户点确认后前端直接执行。不得含全局 `default`。
+
+```text
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-delete",
+    "name": "删除确认",
+    "phase": "Phase 2",
+    "summary": "即将永久删除 <对象描述>，不可恢复",
+    "action": "wait",
+    "apicall": {"method": "DELETE", "endpoint": "/api/<resource>/<id>"},
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "确认删除？",
+        "options": [
+          {"value": "confirm", "label": "⚠️ 确认删除", "desc": "永久删除"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "不执行"}
+        ]
+      }
+    ]
+  }
+}
+```
+```
+
+**铁律：** Delete 最终确认块不得含全局 `default` 字段（option 级别可以标记 `"default": "cancel"`）。
+
+---
+
+## 多值组合筛选查询（Read/Query 专用）
+
+适用于支持多字段、每字段多值组合条件的查询操作。LLM 直接输出包含所有可筛选字段的 `hitl` 块；前端对 `combobox` 字段执行 `options_from` 拉取选项，对范围字段渲染输入框，用户操作后构建 filters 对象。
+
+**字段类型选择：**
+
+| 字段特征 | 使用类型 | 说明 |
+|---------|---------|------|
+| 可枚举选项（分类、状态、用户等） | `combobox` | 前端拉取选项渲染 combobox |
+| 数值区间（年龄、数量、金额等） | `number_range` | 前端渲染最小/最大值输入框 |
+| 时间区间（创建时间、修改时间等） | `datetime_range` | 前端渲染日期时间选择器 |
+| 禁止 | `input` / `string` | 查询场景禁止让用户手动输入文本值 |
+
+### 查询条件 hitl 块（混合示例）
+
+```json
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-1",
+    "name": "查询条件",
+    "phase": "Phase 1",
+    "summary": "请选择筛选条件，留空的字段不参与筛选",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "combobox",
+        "question": "请选择分类",
+        "field": "category",
+        "label": "分类",
+        "multiple": true,
+        "options_from": {
+          "method": "GET",
+          "endpoint": "/api/categories",
+          "label_field": "name",
+          "value_field": "id"
+        }
+      },
+      {
+        "id": "d-2",
+        "type": "number_range",
+        "question": "请填写年龄范围",
+        "field": "age",
+        "label": "年龄",
+        "unit": "岁"
+      },
+      {
+        "id": "d-3",
+        "type": "datetime_range",
+        "question": "请填写创建时间范围",
+        "field": "created_at",
+        "label": "创建时间"
+      }
+    ]
+  }
+}
+```
+
+### apicall 块（在用户完成选择后输出）
+
+```json
+{"method": "POST", "endpoint": "/api/<resource>/query", "body": {"filters": {"category": ["electronics", "clothing"], "age": {"gte": 18, "lte": 30}, "created_at": {"gte": "2024-01-01T00:00:00Z", "lte": "2024-12-31T23:59:59Z"}}}}
+```
+
+**序列化规则：**
+
+| 字段类型 | filters 中的格式 |
+|---------|----------------|
+| `combobox` | `[<selected_values>]` |
+| `number_range` | `{"gte": x, "lte": y}`（只填一端时只出现对应算符） |
+| `datetime_range` | `{"gte": "<ISO8601>", "lte": "<ISO8601>"}` |
+
+`filters` 只包含用户实际操作的非空字段；若用户未操作任何字段，`filters` 为 `{}`，代表查询全部。

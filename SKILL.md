@@ -33,6 +33,7 @@ metadata:
 
 - 遵循 **Harness 6 维度** 架构设计
 - 所有人机交互点通过 ````hitl` JSON 代码块表达，而非自由文本
+- 所有 API 调用通过 ````apicall` 代码块表达，前端负责执行并渲染结果
 - JSON 块是**可解析的**——可被前端工具消费，用于自动渲染 UI 或路由决策
 - CRUD 批量模式走 Day 1 原型 → 确认 → Day 2 批量交付；CRUD 单个模式直接生成 1 个
 
@@ -40,7 +41,7 @@ metadata:
 
 ## HITL JSON 块协议
 
-本 skill 定义 ````hitl` JSON 代码块的协议格式。它生成的所有 SKILL.md 在运行时使用该协议与终端用户交互——生成器本身与 Jane 用自然语言沟通。协议是 skill 的核心定义。
+本 skill 定义 ````hitl` 和 ````apicall` JSON 代码块的协议格式。它生成的所有 SKILL.md 在运行时使用该协议与终端用户交互和执行 API 调用——生成器本身与 Jane 用自然语言沟通。协议是 skill 的核心定义。
 
 ### 块结构
 
@@ -99,7 +100,10 @@ metadata:
 | `choice` | 多选一决策 | 选项已知且有限（≤ 5） |
 | `confirm` | 二元确认/拒绝 | 只需"是/否"回答 |
 | `review` | 审阅产物 | 有 artifact 需人工判断 |
-| `input` | 收集结构化信息 | agent 无法自行获取 |
+| `input` | 填写新数据 | **仅限 Create / Update**，用户填写新建或修改的字段值 |
+| `combobox` | 从系统数据中选值 | 查询条件中可枚举的字段，前端通过 `options_from` 拉取选项后渲染 combobox |
+| `number_range` | 数值范围筛选 | 单个数值字段需大于/小于/区间条件（如年龄、数量、金额） |
+| `datetime_range` | 时间范围筛选 | 单个时间字段需范围条件（如创建时间、修改时间） |
 
 > 完整协议规范（含校验规则 14 条）见 `references/hitl-protocol.md`。
 > 常见块模板（含 CRUD 专用模板）见 `references/block-templates.md`。
@@ -288,7 +292,19 @@ Phase 6  Deliver        写入目标路径（4 个文件）
 2. **CRUD 差异矩阵**（详见 `references/config-reference.md`）：
    - Create/Update/Delete：需要最终确认
    - Read/Query：不需要最终确认
-3. **HITL 触点差异**：所有 4 个 skill 在参数收集阶段都有 HITL；增改删多一个最终确认 CP
+3. **apicall 形式差异**：
+   - Read：直接输出 `hitl` 块，将所有可筛选字段一次性展示
+     - 可枚举字段 → `combobox`（含 `options_from` apicall，前端拉取选项渲染 combobox）
+     - 数值区间字段 → `number_range`
+     - 时间区间字段 → `datetime_range`
+     - **禁止**在查询场景使用 `input` 类型
+     - 字段类型映射：字符串/ID 类字段 → `combobox`；数字字段 → `number_range`；时间字段 → `datetime_range`
+     - filters 序列化：`combobox` → 值数组；`number_range`/`datetime_range` → `{"gte": x, "lte": y}`（只填一端时只出现对应算符）
+     - 参数确认后输出独立 `apicall` `POST /api/<resource>/query` with `{"filters": {...}}`
+   - Create：最终确认 hitl 后输出**独立** `apicall` POST 块
+   - Update：最终确认 hitl 后输出**独立** `apicall` PUT 块
+   - Delete：将 `apicall` **内嵌**在最终确认 `hitl` checkpoint 的 `apicall` 字段中，用户确认后前端直接执行
+4. **HITL 触点差异**：所有 4 个 skill 在参数收集阶段都有 HITL；增改删多一个最终确认 CP
 4. **HITL 触发条件提取**（新增）：
    对每种操作，从参数列表中区分三类：
 
@@ -389,15 +405,20 @@ Phase 6  Deliver        写入目标路径（4 个文件）
      - 去掉最终确认 CP
      - 去掉"最终确认触发条件"段
      - 增加结果展示阶段
+     - Phase 1 使用 `input` hitl 收集多值组合筛选条件（所有字段 `required: false`）
+     - apicall：参数确认 hitl 后输出**独立** `apicall` `POST /api/<resource>/query`，body 为 `{"filters": {<field>: [<values>]}}`；空字段不放入 filters
    - **Create**：
      - 增加参数预览 + 最终确认 CP
      - 填充"最终确认触发条件"段（类型为 `confirm`）
+     - apicall：最终确认 hitl 后输出**独立** ````apicall` POST 块
    - **Update**：
      - 增加修改预览 + 最终确认 CP
      - 填充"最终确认触发条件"段（类型为 `confirm`）
+     - apicall：最终确认 hitl 后输出**独立** ````apicall` PUT 块
    - **Delete**：
      - 增加删除对象确认 + 最终确认 CP（无全局 default）
      - 填充"最终确认触发条件"段（类型为 `choice`，注明无全局 default）
+     - apicall：**内嵌**在最终确认 hitl 的 `checkpoint.apicall` 字段，不单独输出
 3. **触发条件差异调整**（新增）：
    - 每种操作根据其参数列表，独立生成"参数触发矩阵"
    - Create：参数来自用户描述待创建的对象
@@ -411,6 +432,7 @@ Phase 6  Deliver        写入目标路径（4 个文件）
 每个生成的 skill 必须包含以下部分：
 
 - **HITL 协议定义段**：说明 ````hitl` JSON 块格式，指向 `references/hitl-protocol.md`
+- **apicall 协议说明**：说明 ````apicall` 块格式，指向 `references/hitl-protocol.md` 的 apicall 章节
 - **决策收集铁律**：每个 Checkpoint 处写明
   - Delete 操作额外铁律：最终确认不得包含全局 `default`
 - **Harness 架构表**：6 维度
@@ -488,6 +510,9 @@ Agent：```hitl       ← 错误！混合 fence 导致匹配错位
 6. **任务类型特定参数完整？**
 7. **HITL 触发条件表已填充？** 每种操作的参数都分为确定性/可能缺失/歧义三类，不是泛泛的"需要人类介入时"。
 8. **触发条件是精确的、可判断的？** 每个触发条件描述的是一个具体的、LLM 能直接判断的场景（如"order_id 缺失"），而非模糊描述（如"需要时"）。
+9. **apicall 形式正确？** Read/Create/Update 用独立块；Delete 的 apicall 内嵌在最终确认 hitl 的 `checkpoint.apicall` 字段中。
+10. **apicall 位置正确？** CUD 的写操作 apicall 在最终确认 hitl 之后（或内嵌其中），不在用户确认之前。
+11. **apicall 参数只包含用户实际给出的字段？** 无未提及字段。
 
 ---
 
@@ -521,6 +546,8 @@ Agent：```hitl       ← 错误！混合 fence 导致匹配错位
 - [ ] 触发条件精确（每个条件描述的是具体场景，非泛泛表述）
 - [ ] Read 的触发条件表不含"最终确认"段
 - [ ] 增/改/删的触发条件表含"最终确认"段，Delete 注明无全局 default
+- [ ] apicall 形式正确：Read/Create/Update 独立块，Delete 内嵌在最终确认 hitl 中
+- [ ] apicall 位置正确：CUD 写操作在最终确认 hitl 之后（或内嵌）
 
 ### ★ Checkpoint 2 — 必须停
 
@@ -593,6 +620,16 @@ done
 
 12. **CRUD 批量模式跳过原型环节**：必须走 Day 1 原型 → 确认 → Day 2 批量。
 
+13. **Delete 的 apicall 用了独立块**：Delete 的写操作必须内嵌在最终确认 hitl 的 `checkpoint.apicall` 字段中，不单独输出。
+
+14. **CUD 的 apicall 放在最终确认 hitl 之前**：写操作必须在用户确认之后才能执行。
+
+15. **【查询 skill】收到查询意图后先用自然语言问"你想按什么条件查"**：禁止。应直接输出 `hitl` 块，把所有可筛选字段一次性展示给用户。用户留空 = 不按该字段筛选，所有留空 = 查全部。
+
+16. **【查询 skill】用 `input` 类型收集查询条件**：禁止。查询场景的可枚举字段必须用 `combobox`（前端拉取选项），数值/时间区间用 `number_range`/`datetime_range`。`input` 仅限 Create / Update。
+
+17. **apicall 中包含用户未提及的字段**：只拼入用户实际给出的参数。
+
 ---
 
 ## references/ 目录索引
@@ -613,6 +650,7 @@ done
 - [ ] HITL JSON 块全部合法（语法 + 结构校验通过）
 - [ ] Frontmatter 合法（name + description ≤ 1024 chars）
 - [ ] 生成的 SKILL.md 包含 HITL 协议定义段
+- [ ] 生成的 SKILL.md 包含 apicall 协议说明段
 - [ ] 每个 Checkpoint 附带了决策收集铁律
 - [ ] CRUD 模式：Read 没有最终确认 CP
 - [ ] CRUD 模式：Delete 的最终确认 CP 没有全局 `default`
@@ -621,4 +659,9 @@ done
 - [ ] 有边界条件段
 - [ ] 包含 Common Pitfalls + Verification Checklist
 - [ ] ````hitl` 围栏语法正确
+- [ ] apicall 形式正确：Read 用 `POST /query` + `filters` 对象，Create/Update 独立块，Delete 内嵌在最终确认 hitl 中
+- [ ] apicall 位置正确：CUD 写操作在最终确认 hitl 之后（或内嵌）
+- [ ] apicall 参数只包含用户实际给出的字段
+- [ ] Read 的查询条件用 `input` hitl 块收集，所有字段 `required: false`
+- [ ] Read 的查询条件用 `input` hitl 块收集，所有字段 `required: false`
 - [ ] 已写入目标路径（不覆盖已存在文件，除非用户确认）
