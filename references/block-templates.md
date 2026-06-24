@@ -417,6 +417,62 @@
 ```
 ```
 
+### Update：批量 dry_run 预览（独立块）
+
+批量场景先 dry_run 预览影响范围。`update` 用表达式（非字面值），`dry_run: true`：
+
+```text
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_update", "body": {"filters": {"<field>": ["<values>"]}, "update": {"<field>": {"<op>": "<value>"}}, "dry_run": true}}
+```
+```
+
+后端响应示例（前端展示 before/after）：
+```json
+{"dry_run": true, "matched": 3, "items": [...], "preview": [{"id": 6, "before": {...}, "after": {...}}]}
+```
+
+### Update：批量预览确认（hitl 块，紧跟 dry_run 同一回复）
+
+```text
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-bulk-preview",
+    "name": "批量预览确认",
+    "phase": "Phase 2",
+    "summary": "上方已展示匹配对象的修改预览，请仔细核对再决定",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "是否对预览中的所有对象执行修改？",
+        "options": [
+          {"value": "approve", "label": "✅ 全部执行", "desc": "对预览列表全部执行修改", "risk": "dangerous"},
+          {"value": "refine", "label": "✏️ 调整条件", "desc": "条件不对，重新提需求", "risk": "safe"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "放弃操作", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+```
+
+> **`risk` 字段**：`dangerous` 表示该选项会触发后续写操作，前端硬护栏在「前置 apicall 失败」时自动过滤此类选项；`safe` 保留。
+
+### Update：批量正式执行（独立块，带 expected_count）
+
+用户选 approve 后输出。**必须带 `expected_count`**（取自 dry_run 的 matched），且 `filters`/`update` 与 dry_run 完全一致：
+
+```text
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_update", "body": {"filters": {"<field>": ["<values>"]}, "update": {"<field>": {"<op>": "<value>"}}, "dry_run": false, "expected_count": 3}}
+```
+```
+
 ### Delete：删除（内嵌在最终确认 hitl 中）
 
 将 `apicall` 字段嵌入 `checkpoint` 顶层，用户点确认后前端直接执行。不得含全局 `default`。
@@ -449,6 +505,34 @@
 ```
 
 **铁律：** Delete 最终确认块不得含全局 `default` 字段（option 级别可以标记 `"default": "cancel"`）。
+
+---
+
+## 前端错误渲染参考（ErrorBlock 模式）
+
+apicall 执行结果中的 `error` 字段**可能是字符串也可能是对象**（后端用 `HTTPException(detail={...})` 返回结构化错误时，detail 是对象）。前端**禁止**直接 `{result.error}` 渲染对象（会导致 React crash）。
+
+**ErrorBlock 渲染逻辑：**
+
+```
+if typeof error === 'string':
+    直接显示 "❌ {error}"
+else if typeof error === 'object':
+    提取 { error: code, message, duplicates, conflicts, matched, expected }
+    展示 "❌ {message || code}"
+    展示 code（小字）
+    若有 duplicates: 展示"批内重复名称（N）：..."
+    若有 conflicts: 展示"与库内已存在冲突（N）：#id name、..."
+    若有 matched/expected: 展示"匹配 N 条，预期 M 条"
+    追加"⚠️ 操作已中止，数据未变更。请调整参数后重试。"
+else:
+    显示"❌ 请求失败"
+```
+
+**关键点：**
+- 字段名必须与后端实际返回对齐（生成 skill 时在「错误响应契约」段声明）
+- 错误卡片必须明确告知用户"操作已中止、数据未变更"，避免误以为成功
+- 结尾提示用户下一步动作（调整参数 / 重新 dry_run / 取消）
 
 ---
 

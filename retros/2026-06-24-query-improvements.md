@@ -1,6 +1,6 @@
 # 改进计划：json-hitl-skill-generator 的不足与修改清单
 
-> 基于 `retro-2026-06-24.md` 中总结的修改方向，对照 json-hitl-skill-generator 当前内容，列出需要改进的地方。
+> 基于 `2026-06-24-query.md` 中总结的修改方向，对照 json-hitl-skill-generator 当前内容，列出需要改进的地方。
 
 ---
 

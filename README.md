@@ -55,13 +55,21 @@
 ```
 json-hitl-skill-generator/
 ├── SKILL.md                        — 主工作流（本 skill 的数据）
+├── README.md                       — 本文件
+├── CHANGELOG.md                    — 版本变更记录
 ├── references/
 │   ├── hitl-protocol.md            — HITL JSON 块协议规范（格式定义 + 校验规则）
-│   ├── block-templates.md          — 常见块模板（Choice/Confirm/Review/Input + CRUD 专用）
+│   ├── block-templates.md          — 常见块模板（Choice/Confirm/Review/Input + CRUD 专用 + 错误渲染）
 │   ├── config-reference.md         — 生成配置参考（CP 数推荐、CRUD 差异矩阵）
 │   └── crud-pattern.md             — CRUD 批量生成模式参考
-└── templates/
-    └── generated-skill-template.md — 生成模板骨架
+├── templates/
+│   └── generated-skill-template.md — 生成模板骨架（含单条/批量 Update + 错误响应契约）
+└── retros/                         — 调试经验回顾与改进记录（反哺 generator）
+    ├── README.md                   — retros 索引与命名规范
+    ├── 2026-06-24-query.md                 — product-query 调试方向回顾
+    ├── 2026-06-24-query-improvements.md    — product-query 暴露的改进清单
+    ├── 2026-06-24-update-batch.md          — product-update 批量改名 409 防护回顾
+    └── 2026-06-24-update-batch-improvements.md — product-update 暴露的改进清单
 ```
 
 ## 使用方式

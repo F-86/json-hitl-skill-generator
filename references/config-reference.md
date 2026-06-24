@@ -42,7 +42,7 @@
 |------|-----------------|-----------|---------|
 | **Create** (增) | ✅ 必须最终确认 | 参数收集 + 创建确认 | 操作危险，最后一步 CP 使用 `confirm` 类型 |
 | **Read/Query** (查) | ❌ 不需要 | 参数收集（CP-1a 内嵌 apicall）+ 结果展示 | CP-1a 的 checkpoint 内嵌 `apicall` 模板（`filters: {}`），前端提交时直接执行，不经过 LLM |
-| **Update** (改) | ✅ 必须最终确认 | 参数收集 + 修改预览 + 确认 | 危险程度中等，最后一步 CP 使用 `confirm` |
+| **Update** (改) | ✅ 必须最终确认 | 参数收集 + 修改预览 + 确认 | 危险程度中等，最后一步 CP 使用 `confirm`；**批量场景**走 dry_run→CP2a→Step2，Step2 必须带 `expected_count`，Step1/Step2 条件一致 |
 | **Delete** (删) | ✅ 必须最终确认 | 对象选择 + 删除确认 | 最危险，最后一步 CP 使用 `choice`（不含全局 default），默认行为为取消 |
 
 ## 命名规则

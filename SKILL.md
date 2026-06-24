@@ -4,7 +4,7 @@ description: >-
   生成使用 HITL (Human-in-the-Loop) JSON 块协议的 SKILL.md。支持单 skill 生成
   和 CRUD 批量生成（一次输入任务类型 → 输出增删改查 4 个 skill）。
   关键词：HITL、skill 生成、CRUD 批量生成、checkpoint 协议、人机协作、元技能
-version: 1.4.0
+version: 1.5.0
 author: Jane
 license: MIT
 metadata:
@@ -110,6 +110,39 @@ metadata:
 - 前端输入框需处理 IME（中文输入法）——`handleKeyDown` 中检查 `!e.nativeEvent.isComposing`，避免输入法选字时回车误触发发送
 - history LIMIT 和 LLM context slice 的 N 值保持一致
 
+### 软约束 vs 硬护栏（关键架构原则）
+
+SKILL.md 中写给 LLM 的"铁律"是**软约束**——LLM 会忽略或误判，无法 100% 保证行为正确。关键流程正确性必须靠**消费侧硬护栏**兜底。
+
+| 风险类型 | 软约束（SKILL.md 铁律） | 硬护栏（消费侧运行时） |
+|---------|----------------------|---------------------|
+| dry_run 失败后继续执行 | 铁律 B0：禁止继续输出 CP2a/Step2 | 前端：前置 apicall 失败时过滤 `risk: "dangerous"` 选项 |
+| 裸 JSON 输出 | 禁止裸 JSON | 后端：检测 `{` 开头且含 `"checkpoint"` 直接解析 |
+| CP 重复输出 | CP-1a 只出一次 | 前端：同一 CP id 只渲染一次 |
+
+> **铁律：** 凡是"前置步骤失败必须阻断后续"的流程，都不能只靠 SKILL.md 写铁律，必须在消费侧实现硬护栏。生成的 skill 应在「错误响应契约」段声明错误 shape，让前端能判断前置 apicall 是否失败。
+
+### 前端硬护栏模式（prevFailed）
+
+当一条 AI 消息内同时包含前置 apicall 和后续 hitl 块时，前端应检测前置 apicall 结果：
+
+- 若 `apicallResult.error !== undefined`（前置失败），给 HITLWidget 传 `prevFailed` 标志
+- `prevFailed=true` 时：
+  - 过滤 `risk: "dangerous"` 的选项（或硬编码过滤 approve/confirm/execute 类 value）
+  - confirm 类型直接隐藏"确认"按钮
+  - 仅保留 refine/modify/cancel 等安全选项
+  - 底部追加提示："⚠️ 上一步操作失败，已隐藏执行类按钮"
+
+### 前端 apicall 结果渲染（ErrorBlock）
+
+`apicall` 执行结果的 `error` 字段**可能是字符串也可能是对象**（后端 `HTTPException(detail={...})` 返回结构化错误时，detail 是对象）。**禁止**直接 `{result.error}` 渲染对象（React 会 crash）。必须判断类型后分别处理：
+
+- string → 直接显示
+- object → 提取 `message`/`code`/`duplicates`/`conflicts`/`matched`/`expected` 等字段结构化展示
+- 追加"操作已中止，数据未变更"提示，避免用户误以为成功
+
+详见 `references/block-templates.md` 的「前端错误渲染参考」段。
+
 ## 边界
 
 - **进入条件**：用户明确要生成/创建一个新的 SKILL.md
@@ -196,10 +229,14 @@ metadata:
 8. 查询场景禁止 `input`，用 `text_input` / `combobox` / `number_range` / `datetime_range`？
 9. 含时间字段时有时间表达式解析规则？
 10. HITL 块用 ```` ```hitl ```` 包裹，禁止裸 JSON？
+11. [批量 Update] 有 dry_run → CP2a → Step 2 三步流？Step 2 带 `expected_count`？Step1/Step2 条件一致？
+12. [批量 Update] name/price 表达式对照表已写入？Phase 1 业务不变式预检已写入？铁律 B0 已写入？
+13. 写操作的错误响应契约已声明（错误码 + detail shape）？
+14. 前端 error 渲染兜底规则（string vs object）+ 硬护栏模式已说明？
 
 ## Phase 4 — Review
 
-- JSON 合法性校验（17 条规则）
+- JSON 合法性校验（18 条规则）
 ## 常见 Pitfalls
 
 1. **JSON 块中使用非法占位符**：`"..."`、`[...]`、`<Decision>` 等不是合法 JSON。所有示例块中必须用合规 JSON 值填充。
@@ -243,6 +280,10 @@ metadata:
 20. 决策选项语义模糊
 21. 忘记决策收集铁律
 22. 生成的 skill 没有边界条件
+23. **相信 SKILL.md 铁律能 100% 约束 LLM**：prompt 铁律是软约束，LLM 会忽略/误判（如 dry_run 失败后仍输出 CP2a）。关键流程正确性必须靠前端硬护栏兜底——当前置 apicall 失败时过滤 `risk: "dangerous"` 选项。
+24. **前端直接 `{result.error}` 渲染对象**：后端 `HTTPException(detail={...})` 返回结构化错误时，error 是对象，直接渲染会导致 React crash。必须用 ErrorBlock 兜底处理 string vs object。
+25. **批量 Update name set 为同一字面值**：N 条同名必触发批内重名 409。Phase 1 必须识别并用表达式（suffix/replace）替代，不要盲发 dry_run 等后端报错。
+26. **跨层字段名漂移**：前端 ErrorBlock 字段名与后端实际返回不一致（如前端写 `existing_names`，后端返回 `conflicts`）。生成的 skill 必须在「错误响应契约」段声明字段名。
 
 ## references/ 目录索引
 
@@ -279,3 +320,7 @@ metadata:
 - [ ] HITL 块用 ```` ```hitl ```` 包裹，禁止裸 JSON
 - [ ] 后端 max_tokens ≥ 2048
 - [ ] system prompt 注入当前日期
+- [ ] [批量 Update] dry_run → CP2a → Step 2 三步流 + expected_count + 条件一致
+- [ ] [批量 Update] name/price 表达式对照表 + Phase 1 业务不变式预检 + 铁律 B0
+- [ ] 写操作的错误响应契约已声明（错误码 + detail shape）
+- [ ] 前端 error 渲染兜底（string vs object）+ 硬护栏模式已说明

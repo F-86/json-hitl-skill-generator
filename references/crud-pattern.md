@@ -63,6 +63,10 @@
      - **Update**：
        - 增加修改预览 + 最终确认 CP
        - 填充"最终确认触发条件"段（类型为 `confirm`）
+       - **批量场景**：dry_run 预览 → CP2a 批量预览确认 → Step 2 正式执行（带 `expected_count`）
+       - name/price 用表达式（suffix/prefix/replace/multiply/add），禁止 set 同一字面值
+       - Phase 1 业务不变式预检：批量 name set 同名等模式必须提前 HITL 澄清
+       - 铁律 B0：dry_run 失败时禁止继续输出 CP2a 与 Step 2
      - **Delete**：
        - 增加删除对象确认 + 最终确认 CP（无全局 default）
        - 填充"最终确认触发条件"段（类型为 `choice`，注明无全局 default）

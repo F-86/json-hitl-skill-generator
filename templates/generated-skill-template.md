@@ -364,10 +364,123 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 
 ---
 
+## 批量 Update 可选路径（bulk update）
+
+> 当 Update 支持批量（多条件 filters + 表达式修改）时，启用本路径。单条更新走上面的标准路径。
+> **路径判定信号**：「所有」「全部」「名称含...」、多条件定位 → 批量；单个具体 id/名称 → 单条。
+
+### 批量 name / price 表达式
+
+批量场景下 name 和 price 不接受直接 set 字面值（N 条同名会冲突），必须用表达式：
+
+| 意图 | 表达式 | 说明 |
+|------|--------|------|
+| 名字加后缀 | `name={"suffix":"·X"}` | |
+| 名字加前缀 | `name={"prefix":"新-"}` | |
+| 名字替换子串 | `name={"replace":["旧","新"]}` | |
+| 涨价 10% | `price={"multiply":1.1}` | 注意是 1.1 不是 1.0 也不是 0.1 |
+| 降价 10% | `price={"multiply":0.9}` | |
+| 涨 0.5 元 | `price={"add":0.5}` | |
+| 降 0.5 元 | `price={"add":-0.5}` | 负数 |
+
+> **🔴 禁止批量 name set 为同一字面值**：用户说"所有 X 改名为 Y"（Y 是固定字符串）时，直接改会触发批内重名。Phase 1 必须识别此模式并 HITL 澄清（见下方业务不变式预检）。
+
+### Phase 1 — 业务不变式预检（批量专属）
+
+在输出 dry_run apicall 之前，识别明显的业务约束违反并提前 HITL 澄清，**不要盲发请求等后端报错才反应**：
+
+| 模式 | 风险 | 处理 |
+|------|------|------|
+| 批量 name set 为同一字面值 | 批内重名（`name_collision_in_batch`） | HITL 问是否改用 `suffix`/`replace` 表达式，或走单条路径 |
+| 批量 name 改后与库内已有名冲突 | 唯一约束冲突（`name_collision_with_existing`） | 提示用户表达式可能撞名 |
+| filters 命中 0 条 | 无效操作 | 提示用户放宽条件 |
+
+### Step 1 — dry_run 预览
+
+> 因为 LLM 看不到 apicall 结果，靠**前端 UI** 把 matched 数和 before/after 对比展示给用户。LLM 只负责输出 dry_run apicall 和后续确认 hitl。
+
+> **🔴 铁律 B0（前置）**：dry_run 本身也可能 4xx/409 失败（如 `name_collision_in_batch`、`name_collision_with_existing`、0 条命中）。
+> - 失败时前端会在 UI 上显式展示红色错误卡片。
+> - 此时**绝对不要**继续输出批量预览确认 hitl 块，也不要输出 Step 2 的正式 apicall。
+> - 正确做法：在 dry_run apicall 之后输出一条**询问类 hitl**（input 块），告知报错并请用户调整 name 表达式 / filters / 改走单条路径。
+
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_update", "body": {"filters": {"<field>": ["<values>"]}, "update": {"<field>": {"<op>": "<value>"}}, "dry_run": true}}
+```
+
+后端响应（前端展示）：
+```json
+{"dry_run": true, "matched": 3, "items": [...], "preview": [{"id": 6, "before": {...}, "after": {...}}]}
+```
+
+### ★ Checkpoint 2a — 批量预览确认
+
+紧跟 dry_run apicall **同一回复中**输出确认 hitl 块：
+
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-bulk-preview",
+    "name": "批量预览确认",
+    "phase": "Phase 2",
+    "summary": "上方已展示匹配对象的修改预览，请仔细核对再决定",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "是否对预览中的所有对象执行修改？",
+        "options": [
+          {"value": "approve", "label": "✅ 全部执行", "desc": "对预览列表全部执行修改", "risk": "dangerous"},
+          {"value": "refine", "label": "✏️ 调整条件", "desc": "条件不对，重新提需求", "risk": "safe"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "放弃操作", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Step 2 — 正式执行（带 expected_count）
+
+用户选 approve 后输出正式 apicall。**必须带 `expected_count`**（取自 dry_run 的 matched）作为并发安全双保险：
+
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_update", "body": {"filters": {"<field>": ["<values>"]}, "update": {"<field>": {"<op>": "<value>"}}, "dry_run": false, "expected_count": 3}}
+```
+
+> **铁律 B1**：批量正式执行必须带 `expected_count`，不能省略。
+> **铁律 B2**：`filters` 和 `update` 在 Step 1 和 Step 2 中必须**完全一致**，不要偷偷改条件。
+> **铁律 B3**：`expected_count` 必须取自 Step 1 dry_run 响应中前端展示给用户的 `matched` 值。
+
+---
+
+## 错误响应契约
+
+生成的 skill 应声明每个写操作的错误响应 shape，让前端能对齐渲染。**error 可能是字符串也可能是对象**，前端必须用兜底组件处理，禁止直接渲染原始 error。
+
+### 错误响应声明模板
+
+| HTTP 状态 | error code | detail shape | 含义 | LLM 处理 |
+|-----------|-----------|--------------|------|---------|
+| 404 | — | `"<string>"` | 未匹配到对象 | 提示用户对象不存在，确认 id/条件 |
+| 409 | `name_collision_in_batch` | `{"error","message","duplicates":[...]}` | 批内重名 | 提示调整 name 表达式 |
+| 409 | `name_collision_with_existing` | `{"error","message","conflicts":[{id,name}]}` | 与库内冲突 | 提示调整 name 表达式 |
+| 409 | `count_mismatch` | `{"error","message","matched","expected"}` | 并发改动致匹配数变化 | 提示重新 dry_run |
+
+> **前端渲染铁律**：`result.error` 可能是 string 或 object。必须判断类型后分别处理——string 直接显示；object 提取 `message`/`code`/`duplicates`/`conflicts`/`matched`/`expected` 等字段结构化展示，并追加"操作已中止，数据未变更"提示。**禁止直接 `{result.error}` 渲染对象，否则 React 会 crash。**
+
+---
+
 ## Common Pitfalls
 
 1. 【查询】收到查询意图后先用自然语言问"你想按什么条件查"——禁止。应直接输出 hitl input 块，把所有可筛选字段一次性给用户。
-2. ...
+2. 【批量 Update】dry_run 失败后仍继续输出 CP2a 和 Step 2——禁止。dry_run 失败必须 halt，改输出询问类 hitl。
+3. 【批量 Update】name set 为同一字面值导致批内重名——必须 Phase 1 识别并用表达式替代。
+4. 【批量 Update】Step 2 与 Step 1 条件不一致——禁止偷偷改 filters/update。
+5. 【错误渲染】直接 `{result.error}` 渲染对象——error 可能是对象，必须兜底处理。
+6. 【软约束误信】相信 SKILL.md 铁律能 100% 约束 LLM——错误。关键流程正确性（如前置 apicall 失败阻断）必须靠前端硬护栏兜底，prompt 铁律是软约束不可单独依赖。
 
 ## Verification Checklist
 
@@ -385,4 +498,12 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 - [ ] （查）已提取的参数用 `default` 预填
 - [ ] （查）时间表达式解析规则已写入（如含时间字段）
 - [ ] apicall 块只包含用户实际提供的参数，无未提及字段
+- [ ] [批量 Update] 有 dry_run → CP2a → Step 2 三步流
+- [ ] [批量 Update] Step 2 带 `expected_count`；Step1/Step2 条件一致
+- [ ] [批量 Update] name/price 表达式对照表已写入
+- [ ] [批量 Update] Phase 1 业务不变式预检规则已写入
+- [ ] [批量 Update] 铁律 B0（dry_run 失败阻断）已写入
+- [ ] 错误响应契约已声明（错误码 + detail shape）
+- [ ] 前端 error 渲染兜底规则（string vs object）已写入
+- [ ] 关键流程有前端硬护栏兜底说明（不单靠 prompt 铁律）
 ```

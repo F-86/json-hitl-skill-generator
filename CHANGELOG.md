@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.5.0 (2026-06-24)
+
+基于 demo-ai-crud product-update 批量改名 409 防护调试经验反哺：
+
+- **批量 Update 路径**：模板新增 dry_run → CP2a 预览确认 → Step 2 正式执行（带 `expected_count`）三步流 + 铁律 B0/B1/B2/B3
+- **name/price 表达式**：新增 suffix/prefix/replace/multiply/add 对照表，禁止批量 name set 同一字面值
+- **Phase 1 业务不变式预检**：批量同名、唯一冲突等模式必须提前 HITL 澄清，不盲发请求
+- **错误响应契约**：模板新增段，要求生成的 skill 声明错误码 + detail shape，前后端字段名对齐
+- **软约束 vs 硬护栏**：SKILL.md 新增关键架构原则段——prompt 铁律是软约束，关键流程正确性必须靠消费侧硬护栏兜底
+- **前端硬护栏模式（prevFailed）**：前置 apicall 失败时过滤 `risk: "dangerous"` 选项
+- **前端 ErrorBlock 渲染**：error 可能是 string 或 object，禁止直接渲染对象（React crash）
+- **HITL 协议扩展**：option 新增可选 `risk: "safe" | "dangerous"` 字段；新增多步流程状态机规则（前置 apicall 失败阻断）；校验规则新增第 18 条；协议版本 1.2
+- block-templates.md 新增批量 dry_run/预览确认/正式执行三件套模板 + 前端错误渲染参考
+- crud-pattern.md / config-reference.md：Update 差异点补充批量 dry_run + expected_count
+- Draft 自查清单新增 4 条（批量/错误/硬护栏）；Pitfalls 新增 4 条；Verification Checklist 新增 3 项
+
 ## v1.4.0 (2026-06-24)
 
 基于 demo-ai-crud product-query skill 的调试经验反哺：
