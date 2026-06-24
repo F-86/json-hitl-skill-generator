@@ -55,6 +55,7 @@
      - **Read/Query**：
        - 去掉最终确认 CP
        - 去掉"最终确认触发条件"段
+       - CP-1a 的 checkpoint 内嵌 `apicall` 模板（`filters: {}`），前端提交时直接执行
        - 增加结果展示阶段
      - **Create**：
        - 增加参数预览 + 最终确认 CP

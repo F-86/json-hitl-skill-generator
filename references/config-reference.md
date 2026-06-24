@@ -19,7 +19,11 @@
 | `choice` | 范围确认、参数选择、路线决策 | options ≤ 5 个 |
 | `confirm` | 是否覆盖、是否执行危险操作 | 必须能用"是/否"回答 |
 | `review` | 审阅产物质量 | 必须附带 artifact_path |
-| `input` | 收集项目配置、查询参数、路径 | fields ≤ 5 个 |
+| `input` | Create/Update 收集结构化信息 | fields ≤ 5 个；查询场景禁用 |
+| `text_input` | 查询场景自由文本输入（id、名称等） | placeholder 说明多值分隔符 |
+| `combobox` | 查询场景枚举字段选择 | 需提供 options_from |
+| `number_range` | 查询场景数值区间 | field + label 必填 |
+| `datetime_range` | 查询场景时间区间 | field + label 必填 |
 
 ## 推荐的 HITL 触发条件数
 
@@ -37,7 +41,7 @@
 | 操作 | 是否需要最终确认 | HITL 焦点 | 特殊规则 |
 |------|-----------------|-----------|---------|
 | **Create** (增) | ✅ 必须最终确认 | 参数收集 + 创建确认 | 操作危险，最后一步 CP 使用 `confirm` 类型 |
-| **Read/Query** (查) | ❌ 不需要 | 参数收集 + 结果展示 | 参数确认后用 `choice` 让用户选择，不需要 `confirm` |
+| **Read/Query** (查) | ❌ 不需要 | 参数收集（CP-1a 内嵌 apicall）+ 结果展示 | CP-1a 的 checkpoint 内嵌 `apicall` 模板（`filters: {}`），前端提交时直接执行，不经过 LLM |
 | **Update** (改) | ✅ 必须最终确认 | 参数收集 + 修改预览 + 确认 | 危险程度中等，最后一步 CP 使用 `confirm` |
 | **Delete** (删) | ✅ 必须最终确认 | 对象选择 + 删除确认 | 最危险，最后一步 CP 使用 `choice`（不含全局 default），默认行为为取消 |
 

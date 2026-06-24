@@ -4,7 +4,7 @@ description: >-
   生成使用 HITL (Human-in-the-Loop) JSON 块协议的 SKILL.md。支持单 skill 生成
   和 CRUD 批量生成（一次输入任务类型 → 输出增删改查 4 个 skill）。
   关键词：HITL、skill 生成、CRUD 批量生成、checkpoint 协议、人机协作、元技能
-version: 1.3.0
+version: 1.4.0
 author: Jane
 license: MIT
 metadata:
@@ -92,7 +92,8 @@ metadata:
 |--------------|----------------|------|
 | choice | 选项按钮列表 | 点击触发操作 |
 | confirm | 确认/取消按钮 | 二元决策 |
-| input | 文本输入框 | 收集自由文本 |
+| input | 结构化表单（fields 数组） | Create/Update 收集；查询场景禁用 |
+| text_input | 单行文本输入框 | 查询场景自由文本（id、名称等） |
 | combobox | 标签选择器 | 从后端 API 拉取选项 |
 | number_range | 最小/最大值输入 | 数字区间 |
 | datetime_range | 日期选择器 | 使用 DateRangePicker |
@@ -100,8 +101,13 @@ metadata:
 ### 关键约束
 
 - ````hitl` 块必须附带自然语言引导语，不能裸扔 JSON
+- ````hitl` 块必须用代码块包裹（```` ```hitl ````），禁止裸 JSON 输出
 - LLM system prompt = SKILL.md 完整内容（含 Phase 指令、触发条件）
+- **system prompt 应注入当前日期**（如"今天的日期是 2026-06-24"），否则 LLM 不知道"今年"是哪年
+- **max_tokens 建议 ≥ 2048**——HITL JSON 块较大，512 会导致截断
+- **后端应增加裸 JSON 兜底解析**——LLM 有时输出裸 JSON（不加代码块包裹），后端检测到 `{` 开头且含 `"checkpoint"` 的回复应直接解析
 - 前端 API_BASE 不能硬编码 localhost，使用相对路径或环境变量
+- 前端输入框需处理 IME（中文输入法）——`handleKeyDown` 中检查 `!e.nativeEvent.isComposing`，避免输入法选字时回车误触发发送
 - history LIMIT 和 LLM context slice 的 N 值保持一致
 
 ## 边界
@@ -185,10 +191,15 @@ metadata:
 3. 枚举参数有"精确值直接使用"规则？
 4. 增/改/删 CP-1 用 `input` + `fields[].type: "choice"` 而非独立 `choice`？
 5. ````apicall` 块用 `"<参数名>"` 而非 `{{param}}`？
+6. 查询 CP-1a 内嵌 apicall 模板（`filters: {}`）？
+7. 查询 CP-1a 只出一次 + 已提取参数用 default 预填？
+8. 查询场景禁止 `input`，用 `text_input` / `combobox` / `number_range` / `datetime_range`？
+9. 含时间字段时有时间表达式解析规则？
+10. HITL 块用 ```` ```hitl ```` 包裹，禁止裸 JSON？
 
 ## Phase 4 — Review
 
-- JSON 合法性校验（14 条规则）
+- JSON 合法性校验（17 条规则）
 ## 常见 Pitfalls
 
 1. **JSON 块中使用非法占位符**：`"..."`、`[...]`、`<Decision>` 等不是合法 JSON。所有示例块中必须用合规 JSON 值填充。
@@ -208,13 +219,30 @@ metadata:
 
 7. **枚举参数（category 等）缺少"精确值直接使用"规则**：如果用户明确说了枚举枚举值（如"服装"、"数码"），SKILL.md 必须写明：直接使用该值，不要质疑。只有模糊描述（"吃的"、"穿的"）才需要 HITL 让用户选择。不加这条，LLM 会连明确值也质疑。
 
-8. 没有引导语就扔出 JSON 块
-9. Checkpoint 过多
-10. CRUD 模式：把 Read 也加了 final confirm
-11. CRUD 模式：Delete 设了全局 default
-12. 决策选项语义模糊
-13. 忘记决策收集铁律
-14. 生成的 skill 没有边界条件
+8. **LLM 输出裸 JSON（不加代码块包裹）**：LLM 有时直接输出以 `{` 开头的 JSON 文本，不加 ```` ```hitl ```` 包裹，导致前端无法解析。SKILL.md 必须写明"HITL 块必须用 ```` ```hitl ```` 包裹，禁止裸 JSON 输出"。后端也应增加兜底：检测到 `{` 开头且含 `"checkpoint"` 的回复直接解析。
+
+9. **查询 CP 出现两次**：LLM 有时分多轮询问（先问价格、再问分类），而非一次性收集。SKILL.md 必须写明"CP-1a 一轮查询只出一次，禁止分多轮询问"。
+
+10. **已提取的参数忘记用 default 预填**：LLM 从用户输入提取到参数（如价格 10~100）后，应填入对应 decision 的 `default` 字段，而不是只在自然语言里提到。不预填的话用户需要重新输入。
+
+11. **查询操作不需要最终确认**：与 CUD 不同，查询操作不需要 choice 类型的"参数确认"步骤。正确做法是 CP-1a 内嵌 apicall 模板，前端提交时直接执行。
+
+12. **max_tokens 过小导致 JSON 截断**：HITL JSON 块较大（含多个 decision），max_tokens=512 会导致输出被截断、JSON 不完整。建议 ≥ 2048。
+
+13. **system prompt 未注入当前日期**：LLM 训练数据有截止日期，不知道"今天"是哪天。system prompt 应注入"今天的日期是 YYYY-MM-DD"，否则"今年"等时间表达式会解析错误。
+
+14. **时间表达式结束时间取了今天而非区间最后一天**：用户说"今年"，LLM 可能把 lte 设成今天而非 12-31。SKILL.md 必须包含时间表达式解析规则表，明确"结束时间取区间最后一天"。
+
+15. **前端 IME 回车误触发**：中文输入法下按回车确认选字，不应触发消息发送。前端 `handleKeyDown` 需检查 `!e.nativeEvent.isComposing`。
+
+16. **前端提交时 filters 覆盖问题**：当 LLM 预填了部分 filters（如 id），前端提交表单时不能直接覆盖 `apicall.body.filters`，而应合并：`{ ...baseFilters, ...formFilters }`。
+
+17. 没有引导语就扔出 JSON 块
+18. Checkpoint 过多
+19. CRUD 模式：Delete 设了全局 default
+20. 决策选项语义模糊
+21. 忘记决策收集铁律
+22. 生成的 skill 没有边界条件
 
 ## references/ 目录索引
 
@@ -235,6 +263,10 @@ metadata:
 - [ ] Frontmatter 合法
 - [ ] 每个 Checkpoint 附决策收集铁律
 - [ ] Read 无最终确认
+- [ ] Read 的 CP-1a 内嵌 apicall 模板（`filters: {}`）
+- [ ] Read 的 CP-1a 只出一次（禁止分多轮询问）
+- [ ] Read 已提取参数用 `default` 预填
+- [ ] Read 含时间字段时有时间表达式解析规则
 - [ ] Delete 无全局 default
 - [ ] Harness 表完整
 - [ ] 有边界条件段
@@ -243,3 +275,7 @@ metadata:
 - [ ] 增/改/删 Phase 1 有"已提取字段不重复问"规则
 - [ ] 枚举参数有"精确值直接使用"规则
 - [ ] 增/改/删 CP-1 用 `input` + `fields[].type: "choice"` 而非独立 `choice`（前端兼容性）
+- [ ] 查询场景用 `text_input` / `combobox` / `number_range` / `datetime_range`，禁止 `input`
+- [ ] HITL 块用 ```` ```hitl ```` 包裹，禁止裸 JSON
+- [ ] 后端 max_tokens ≥ 2048
+- [ ] system prompt 注入当前日期
