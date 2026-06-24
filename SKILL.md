@@ -67,23 +67,42 @@ metadata:
 
 ## HITL Consumer Pattern
 
-本 skill 生成的 ````hitl` JSON 块需要在应用中被消费。参考实现：
+本 skill 生成的 SKILL.md 需要在应用中**消费**：后端加载 SKILL.md 作为 LLM system prompt，LLM 按 Phase 指令输出 ````hitl` JSON 块，前端解析并渲染为交互控件。
 
-```
-/root/code/project/demo-ai-crud/
-  backend/skill_framework.py       — skill 注册/匹配/执行引擎
-  backend/skills/product_skill.py  — 商品 CRUD skill（生成 hitl 块）
-  frontend/src/components/AIChat.js — 解析 hitl 块并渲染 UI
-```
+完整参考实现：`/root/code/project/demo-ai-crud/`
+详细说明见 `references/consumer-pattern.md`（若不存在则参考 demo 项目）。
 
-### 消费流程
+### 后端消费流程
 
-1. 用户在前端输入自然语言消息
-2. 后端 POST /api/skill/execute 收到消息，skill_framework 按关键词匹配最佳 skill
-3. skill handler 执行操作，返回 reply（可能含 ````hitl` JSON 块）
-4. 前端检测到 reply 中含 ````hitl` 时，解析 JSON 并渲染为交互控件
+1. 启动时 `SkillRegistry` 扫描 `skills/<name>/SKILL.md` 注册所有 skill
+2. 用户消息 → `_route_skill()` → LLM 判断意图属于哪个 skill
+3. `execute_skill()` 取 SKILL.md 完整内容作 system prompt
+4. 最近 N 轮对话历史 + 用户消息 → 调 LLM → LLM 按 Phase 指令输出 reply
 
-HITL 块 → UI 控件映射：choice 按钮列表 | confirm 确认/取消 | input 输入框 | review 路径+输入
+### 前端消费流程
+
+1. `AIChat.js` 检测 `data.hitl` → 解析 ````hitl` JSON → 传给 `HITLWidget`
+2. `HITLWidget` 按 `decision.type` 映射为不同 UI 组件
+3. 多个 decision 展示为**轮换图**（每个 decision 一屏，圆点导航）
+4. `data.apicall` → 前端自动执行 API 调用并渲染结果
+
+### 控件映射
+
+| decision.type | HITLWidget 渲染 | 说明 |
+|--------------|----------------|------|
+| choice | 选项按钮列表 | 点击触发操作 |
+| confirm | 确认/取消按钮 | 二元决策 |
+| input | 文本输入框 | 收集自由文本 |
+| combobox | 标签选择器 | 从后端 API 拉取选项 |
+| number_range | 最小/最大值输入 | 数字区间 |
+| datetime_range | 日期选择器 | 使用 DateRangePicker |
+
+### 关键约束
+
+- ````hitl` 块必须附带自然语言引导语，不能裸扔 JSON
+- LLM system prompt = SKILL.md 完整内容（含 Phase 指令、触发条件）
+- 前端 API_BASE 不能硬编码 localhost，使用相对路径或环境变量
+- history LIMIT 和 LLM context slice 的 N 值保持一致
 
 ## 边界
 
@@ -162,26 +181,40 @@ HITL 块 → UI 控件映射：choice 按钮列表 | confirm 确认/取消 | inp
 ### Draft 自查清单
 
 1. 所有 JSON 块合法？无 ... / [...] / <...>
+2. 增/改/删 Phase 1 有"必须输出 hitl 块"铁律 + "已提取字段不重复问"规则？
+3. 枚举参数有"精确值直接使用"规则？
+4. 增/改/删 CP-1 用 `input` + `fields[].type: "choice"` 而非独立 `choice`？
+5. ````apicall` 块用 `"<参数名>"` 而非 `{{param}}`？
 
 ## Phase 4 — Review
 
 - JSON 合法性校验（14 条规则）
-- CRUD 专项校验（增改删有 final CP，Read 无，Delete 无 default）
-- 结构审查（Frontmatter、Harness 表、Pitfalls、Checklist）
-- 触发条件审查
-
 ## 常见 Pitfalls
 
-1. JSON 块中使用非法占位符
-2. HITL 协议示例用嵌套 fence
-3. 对话示例混合 fence
-4. 没有引导语就扔出 JSON 块
-5. Checkpoint 过多
-6. CRUD 模式：把 Read 也加了 final confirm
-7. CRUD 模式：Delete 设了全局 default
-8. 决策选项语义模糊
-9. 忘记决策收集铁律
-10. 生成的 skill 没有边界条件
+1. **JSON 块中使用非法占位符**：`"..."`、`[...]`、`<Decision>` 等不是合法 JSON。所有示例块中必须用合规 JSON 值填充。
+
+2. **HITL 协议示例用嵌套 fence**：````markdown` 包裹 ````hitl` 会导致 Markdown 解析器误匹配。必须用 ````text` 展示协议示例。
+
+3. **对话示例混合 fence**：```` 围栏内嵌入 ````hitl` 块 → 外层围栏被内层 ```` 意外关闭。改用块引用 `>` + 独立 ````text` 块。
+
+4. **````apicall` 块使用 `{{param}}` 模板语法**：`{{param}}` 不是合法 JSON。应使用 `"<参数名>"` 占位符。
+
+5. **HITL decision type 与前端渲染能力不匹配**：生成 skill 前需确认目标前端 HITLWidget 支持哪些 `decision.type`。例如 demo 前端的 HITLWidget **不支持独立的 `choice` 类型**（带内联 `options` 的 `choice` 不渲染任何控件）。替代方案：
+   - 枚举选择 → 用 `type: "input"` + `fields[].type: "choice"` + `options` 数组，渲染为下拉框
+   - 多选标签 → 用 `type: "combobox"` + `options_from.endpoint` 指向后端 API
+   - 确认 → 用 `type: "confirm"`（仅当前端支持）
+
+6. **Phase 指令强度不足导致 LLM 用自然语言替代 HITL 块**：LLM 默认用自然语言对话。如果 Phase 1 指令说"缺失时触发 HITL"，LLM 会解释为"用自然语言问用户"。**必须写"必须输出 ````hitl` 块，禁止用自然语言询问"**，且放在禁止行为段第一条作为 🔴 铁律。
+
+7. **枚举参数（category 等）缺少"精确值直接使用"规则**：如果用户明确说了枚举枚举值（如"服装"、"数码"），SKILL.md 必须写明：直接使用该值，不要质疑。只有模糊描述（"吃的"、"穿的"）才需要 HITL 让用户选择。不加这条，LLM 会连明确值也质疑。
+
+8. 没有引导语就扔出 JSON 块
+9. Checkpoint 过多
+10. CRUD 模式：把 Read 也加了 final confirm
+11. CRUD 模式：Delete 设了全局 default
+12. 决策选项语义模糊
+13. 忘记决策收集铁律
+14. 生成的 skill 没有边界条件
 
 ## references/ 目录索引
 
@@ -191,8 +224,7 @@ HITL 块 → UI 控件映射：choice 按钮列表 | confirm 确认/取消 | inp
 | references/block-templates.md | 常见 hitl 块模板 |
 | references/config-reference.md | 生成配置参考 |
 | references/crud-pattern.md | CRUD 批量生成模式参考 |
-| (project) demo-ai-crud/ | HITL consumer 参考实现 |
-| (project) demo-ai-crud/ | HITL consumer 参考实现 |
+| (project) demo-ai-crud/ | HITL consumer 参考实现（前后端架构/消费流程） |
 
 ## Verification Checklist
 
@@ -207,3 +239,7 @@ HITL 块 → UI 控件映射：choice 按钮列表 | confirm 确认/取消 | inp
 - [ ] Harness 表完整
 - [ ] 有边界条件段
 - [ ] 有 Pitfalls + Checklist
+- [ ] 增/改/删 Phase 1 有"必须输出 hitl 块"铁律
+- [ ] 增/改/删 Phase 1 有"已提取字段不重复问"规则
+- [ ] 枚举参数有"精确值直接使用"规则
+- [ ] 增/改/删 CP-1 用 `input` + `fields[].type: "choice"` 而非独立 `choice`（前端兼容性）
