@@ -67,9 +67,13 @@
        - name/price 用表达式（suffix/prefix/replace/multiply/add），禁止 set 同一字面值
        - Phase 1 业务不变式预检：批量 name set 同名等模式必须提前 HITL 澄清
        - 铁律 B0：dry_run 失败时禁止继续输出 CP2a 与 Step 2
-     - **Delete**：
-       - 增加删除对象确认 + 最终确认 CP（无全局 default）
-       - 填充"最终确认触发条件"段（类型为 `choice`，注明无全局 default）
+    - **Delete**：
+      - 增加删除对象确认 + 最终确认 CP（无全局 default）
+      - 支持**单条路径 + 批量路径**：单条按唯一标识删除；批量按 filters 条件删除
+      - **批量场景**：Step 1 `dry_run` 预览 → CP2a 预览确认 → CP2b 最终确认（内嵌正式删除 apicall，带 `expected_count`）
+      - 当用户只有单个自然语言名称、没有明确批量语义时，不要猜成 filters 删除；先收集唯一标识
+      - 填充"最终确认触发条件"段（类型为 `choice`，注明无全局 default）
+
   3. **触发条件差异调整**：
      - 每种操作根据其参数列表，独立生成"参数触发矩阵"
      - Create：参数来自用户描述待创建的对象

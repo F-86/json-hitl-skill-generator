@@ -465,7 +465,7 @@
 
 ### Update：批量正式执行（独立块，带 expected_count）
 
-用户选 approve 后输出。**必须带 `expected_count`**（取自 dry_run 的 matched），且 `filters`/`update` 与 dry_run 完全一致：
+用户选 approve 后输出。若消费侧回的是结构化 JSON（如 `{"action":"approve","expected_count":3}``），应优先复用其中的 `expected_count`。正式执行 **必须带 `expected_count`**（取自 dry_run 的 matched），且 `filters`/`update` 与 dry_run 完全一致：
 
 ```text
 ```apicall
@@ -473,7 +473,7 @@
 ```
 ```
 
-### Delete：删除（内嵌在最终确认 hitl 中）
+### Delete：单条删除（内嵌在最终确认 hitl 中）
 
 将 `apicall` 字段嵌入 `checkpoint` 顶层，用户点确认后前端直接执行。不得含全局 `default`。
 
@@ -504,7 +504,96 @@
 ```
 ```
 
-**铁律：** Delete 最终确认块不得含全局 `default` 字段（option 级别可以标记 `"default": "cancel"`）。
+**铁律：** Delete 最终确认块不得含全局 `default` 字段。
+
+### Delete：批量 dry_run 预览（独立块）
+
+批量删除时，先输出 `dry_run=true` 的预览请求，让前端展示命中列表：
+
+```text
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_delete", "body": {"filters": {"<field>": ["<values>"]}, "dry_run": true}}
+```
+```
+
+后端预览结果示例：
+
+```json
+{"dry_run": true, "matched": 3, "items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
+```
+
+### Delete：批量预览确认（hitl 块，紧跟 dry_run 同一回复）
+
+```text
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-bulk-preview",
+    "name": "批量预览确认",
+    "phase": "Phase 2",
+    "summary": "上方已展示将被删除的对象列表，请先核对范围",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "是否继续对上方预览中的全部对象执行删除？",
+        "options": [
+          {"value": "approve", "label": "继续确认", "desc": "进入最终删除确认", "risk": "dangerous"},
+          {"value": "refine", "label": "✏️ 调整条件", "desc": "范围不对，重新提需求", "risk": "safe"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "放弃删除", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+```
+
+### Delete：批量最终确认（内嵌正式删除 apicall，带 expected_count）
+
+用户选 approve 后输出。若消费侧回的是结构化 JSON（如 `{"action":"approve","expected_count":3}`），应优先复用其中的 `expected_count`。正式删除必须与 dry_run 使用**完全一致**的 `filters`，并带 `expected_count`：
+
+```text
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-delete-bulk",
+    "name": "批量删除最终确认",
+    "phase": "Phase 2",
+    "summary": "即将永久删除预览中的 3 个对象，此操作不可恢复",
+    "action": "wait",
+    "apicall": {
+      "method": "POST",
+      "endpoint": "/api/<resource>/bulk_delete",
+      "body": {
+        "filters": {"<field>": ["<values>"]},
+        "dry_run": false,
+        "expected_count": 3
+      }
+    },
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "确认批量删除？",
+        "options": [
+          {"value": "confirm", "label": "⚠️ 确认批量删除", "desc": "永久删除预览中的全部对象", "risk": "dangerous"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "不执行删除", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+```
+
+> **Delete 批量铁律：**
+> - `dry_run` 与正式删除的 `filters` 必须一致
+> - 正式删除必须带 `expected_count`
+> - 当用户只是说一个自然语言名称、没有明确批量语义时，不要直接套用本模板
 
 ---
 

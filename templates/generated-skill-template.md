@@ -95,9 +95,11 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 >
 > **铁律 3：每个 ````hitl` 块的 `decisions` 至少 1 项，每项独立。Agent 可推荐默认值（用 `default` 字段），但不能静默替用户选择。**
 >
-> **铁律 4：````hitl` 块必须用代码块包裹（```` ```hitl ````），禁止直接输出裸 JSON，否则前端无法渲染。**
+> **铁律 4：真实运行时的 checkpoint / apicall JSON 必须分别使用 ```` ```hitl ```` / ```` ```apicall ```` 包裹；` ```text ` 仅用于文档示例展示，禁止把运行时 JSON 包进 ` ```text `。**
 >
-> **铁律 5：[查询操作] CP-1a 一轮查询只出一次，禁止分多轮询问（先问价格、再问分类是错误的）。所有参数在同一个 CP-1a 中一次性收集。**
+> **铁律 5：````hitl` 块必须用代码块包裹（```` ```hitl ````），禁止直接输出裸 JSON，否则前端无法渲染。**
+>
+> **铁律 6：[查询操作] CP-1a 一轮查询只出一次，禁止分多轮询问（先问价格、再问分类是错误的）。所有参数在同一个 CP-1a 中一次性收集。**
 
 ### [仅增/改/删] 最终确认触发条件
 
@@ -105,7 +107,7 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 |------|----------|--------|------|
 | 参数已齐全、操作即将执行 | ✅ | `confirm`（增/改） / `choice`（删） | 展示将要执行的操作预览，等待用户最终确认 |
 
-> **Delete 铁律：删除最终确认的 `choice` 块，不得设置全局 `default` 字段。用户可设置 option 级别的 `default` 将"取消"设为默认。**
+> **Delete 铁律：删除最终确认的 `choice` 块，不得设置全局 `default` 字段。若希望默认倾向取消，应通过文案和选项排序体现，而不是在 checkpoint 顶层静默设默认。**
 
 ### [仅查] 不触发最终确认
 
@@ -317,7 +319,7 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 ```
 
 ```apicall
-{"method": "POST", "endpoint": "/api/<resource>", "body": {"field1": "{{param1}}", "field2": "{{param2}}"}}
+{"method": "POST", "endpoint": "/api/<resource>", "body": {"field1": "<param1>", "field2": "<param2>"}}
 ```
 
 **[删]** apicall 内嵌在最终确认 hitl 中，用户确认后前端直接执行：
@@ -331,7 +333,7 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
     "phase": "Phase 2",
     "summary": "即将永久删除 <对象描述>，不可恢复",
     "action": "wait",
-    "apicall": {"method": "DELETE", "endpoint": "/api/<resource>/{{id}}"},
+    "apicall": {"method": "DELETE", "endpoint": "/api/<resource>/<id>"},
     "decisions": [
       {
         "id": "d-1",
@@ -444,7 +446,7 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 
 ### Step 2 — 正式执行（带 expected_count）
 
-用户选 approve 后输出正式 apicall。**必须带 `expected_count`**（取自 dry_run 的 matched）作为并发安全双保险：
+用户选 approve 后输出正式 apicall。若消费侧回的是结构化 JSON（如 `{"action":"approve","expected_count":3}`），应优先复用其中的 `expected_count`。正式执行 **必须带 `expected_count`**（取自 dry_run 的 matched）作为并发安全双保险：
 
 ```apicall
 {"method": "POST", "endpoint": "/api/<resource>/bulk_update", "body": {"filters": {"<field>": ["<values>"]}, "update": {"<field>": {"<op>": "<value>"}}, "dry_run": false, "expected_count": 3}}
@@ -453,6 +455,100 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 > **铁律 B1**：批量正式执行必须带 `expected_count`，不能省略。
 > **铁律 B2**：`filters` 和 `update` 在 Step 1 和 Step 2 中必须**完全一致**，不要偷偷改条件。
 > **铁律 B3**：`expected_count` 必须取自 Step 1 dry_run 响应中前端展示给用户的 `matched` 值。
+
+---
+
+## 批量 Delete 可选路径（bulk delete）
+
+> 当 Delete 支持按条件批量删除时，启用本路径。单条删除仍走上面的标准路径。
+> **路径判定信号**：
+> - 明确唯一标识（如 id）→ 单条
+> - 有“所有 / 全部 / 一批 / 按条件 / 名称含 / 价格低于 / 分类是 ...”→ 批量
+> - 只有单个自然语言名字、没有明确批量语义 → **不要猜成 filters 删除**，先收集唯一标识
+
+### Step 1 — dry_run 预览
+
+```apicall
+{"method": "POST", "endpoint": "/api/<resource>/bulk_delete", "body": {"filters": {"<field>": ["<values>"]}, "dry_run": true}}
+```
+
+后端响应（前端展示命中列表）：
+
+```json
+{"dry_run": true, "matched": 3, "items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
+```
+
+> **🔴 Delete 铁律 B0（前置）**：`dry_run` 失败时，绝对不要继续输出预览确认或正式删除；应改输出询问类 `hitl`，让用户调整 filters / 改走单条路径。
+
+### ★ Checkpoint 2a — 批量预览确认
+
+`dry_run` apicall 后，紧跟同一回复输出：
+
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-bulk-preview",
+    "name": "批量预览确认",
+    "phase": "Phase 2",
+    "summary": "上方已展示将被删除的对象列表，请先核对范围",
+    "action": "wait",
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "是否继续对上方预览中的全部对象执行删除？",
+        "options": [
+          {"value": "approve", "label": "继续确认", "desc": "进入最终删除确认", "risk": "dangerous"},
+          {"value": "refine", "label": "✏️ 调整条件", "desc": "范围不对，重新提需求", "risk": "safe"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "放弃删除", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+### ★ Checkpoint 2b — 批量最终确认（带 expected_count）
+
+用户选 approve 后输出最终确认块。若消费侧回的是结构化 JSON（如 `{"action":"approve","expected_count":3}`），应优先复用其中的 `expected_count`：
+
+```hitl
+{
+  "version": "1.0",
+  "checkpoint": {
+    "id": "cp-delete-bulk",
+    "name": "批量删除最终确认",
+    "phase": "Phase 2",
+    "summary": "即将永久删除预览中的 3 个对象，此操作不可恢复",
+    "action": "wait",
+    "apicall": {
+      "method": "POST",
+      "endpoint": "/api/<resource>/bulk_delete",
+      "body": {
+        "filters": {"<field>": ["<values>"]},
+        "dry_run": false,
+        "expected_count": 3
+      }
+    },
+    "decisions": [
+      {
+        "id": "d-1",
+        "type": "choice",
+        "question": "确认批量删除？",
+        "options": [
+          {"value": "confirm", "label": "⚠️ 确认批量删除", "desc": "永久删除预览中的全部对象", "risk": "dangerous"},
+          {"value": "cancel", "label": "❌ 取消", "desc": "不执行删除", "risk": "safe"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **Delete 铁律 B1**：批量正式删除必须带 `expected_count`。
+> **Delete 铁律 B2**：Step 1 与 Step 2 的 `filters` 必须完全一致。
+> **Delete 铁律 B3**：当用户只有单个自然语言名字、没有集合语义时，不要直接生成本路径。
 
 ---
 
@@ -503,6 +599,11 @@ Phase 2  <执行阶段>     执行操作 + 展示结果
 - [ ] [批量 Update] name/price 表达式对照表已写入
 - [ ] [批量 Update] Phase 1 业务不变式预检规则已写入
 - [ ] [批量 Update] 铁律 B0（dry_run 失败阻断）已写入
+- [ ] [批量 Delete] 支持单条/批量双路径；批量路径有 `dry_run → CP2a → CP2b`
+- [ ] [批量 Delete] 正式删除带 `expected_count`；Step1/Step2 filters 一致
+- [ ] 运行时已明确要求输出 ` ```hitl ` / ` ```apicall `，没有把 ` ```text ` 当成运行时格式
+- [ ] 多步流程允许消费侧回传结构化 JSON 回执（如 `{"action":"approve","expected_count":N}`）
+- [ ] consumer 已说明“内部协议回执 vs 自然语言用户消息”分流
 - [ ] 错误响应契约已声明（错误码 + detail shape）
 - [ ] 前端 error 渲染兜底规则（string vs object）已写入
 - [ ] 关键流程有前端硬护栏兜底说明（不单靠 prompt 铁律）

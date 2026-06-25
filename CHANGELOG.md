@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.6.0 (2026-06-24)
+
+基于 demo-ai-crud product-delete 批量删除与 HITL 消费语义调试经验反哺：
+
+- **批量 Delete 路径**：补齐 Delete 的单条/批量双路径建模；批量删除走 `dry_run → CP2a → CP2b`，与批量 Update 对称
+- **`expected_count` 扩展到 Delete**：明确凡是预览后正式执行的批量写操作，都应把 `expected_count` 视作并发安全双保险，而非 Update 专属
+- **结构化回执归一化**：新增多步流程 consumer 指南——前端可把 `approve` 归一化为 `{"action":"approve","expected_count":N}` 之类结构化 JSON 回执
+- **运行时 fence 规则强化**：强调文档示例块可用 ` ```text `，但真实运行输出必须使用 ` ```hitl ` / ` ```apicall `；并补充 ` ```text ` 误包裹 JSON 的消费侧兼容建议
+- **消息语义分流**：前端消费指南新增“内部协议回执 vs 自然语言用户消息”分流规则，避免自然语言用户消息被折叠进 AI 的 HITL 卡片
+- **Delete 模板与差异矩阵更新**：`block-templates.md` / `crud-pattern.md` / `config-reference.md` / `generated-skill-template.md` 同步补齐批量 Delete 模板与检查项
+- **文档同步**：新增本轮 retros 回顾 / 改进清单 / 落地同步日志，并更新 README 与 retros 索引
+
 ## v1.5.0 (2026-06-24)
 
 基于 demo-ai-crud product-update 批量改名 409 防护调试经验反哺：

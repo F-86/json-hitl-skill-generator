@@ -63,13 +63,16 @@ json-hitl-skill-generator/
 │   ├── config-reference.md         — 生成配置参考（CP 数推荐、CRUD 差异矩阵）
 │   └── crud-pattern.md             — CRUD 批量生成模式参考
 ├── templates/
-│   └── generated-skill-template.md — 生成模板骨架（含单条/批量 Update + 错误响应契约）
+│   └── generated-skill-template.md — 生成模板骨架（含单条/批量 Update、Delete + 错误响应契约）
 └── retros/                         — 调试经验回顾与改进记录（反哺 generator）
     ├── README.md                   — retros 索引与命名规范
     ├── 2026-06-24-query.md                 — product-query 调试方向回顾
     ├── 2026-06-24-query-improvements.md    — product-query 暴露的改进清单
     ├── 2026-06-24-update-batch.md          — product-update 批量改名 409 防护回顾
-    └── 2026-06-24-update-batch-improvements.md — product-update 暴露的改进清单
+    ├── 2026-06-24-update-batch-improvements.md — product-update 暴露的改进清单
+    ├── 2026-06-24-delete-batch-hitl-ui.md              — product-delete 批量删除与 HITL 消费语义回顾
+    ├── 2026-06-24-delete-batch-hitl-ui-improvements.md — 本轮暴露的 generator 不足
+    └── 2026-06-24-delete-batch-hitl-ui-implementation-log.md — 本轮落地同步日志
 ```
 
 ## 使用方式
